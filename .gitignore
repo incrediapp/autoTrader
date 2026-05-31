@@ -1,0 +1,38 @@
+# Dependencies
+node_modules/
+.dart_tool/
+.packages
+.pub-cache/
+.pub/
+
+# Firebase
+.firebase/
+firebase-debug.log
+firebase-debug.*.log
+*.local
+
+# Flutter
+flutter_app/build/
+flutter_app/.flutter-plugins
+flutter_app/.flutter-plugins-dependencies
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# OS
+.DS_Store
+
+# Secrets
+.env
+.env.*
+!.env.example
+secrets/ibkr/*.pem
+secrets/ibkr/*.json
+**/google-services.json
+**/GoogleService-Info.plist
+**/firebase_options.dart
+
+# Coverage
+coverage/

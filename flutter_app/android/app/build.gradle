@@ -1,0 +1,31 @@
+// Legacy Groovy entry point — Flutter 3.x uses build.gradle.kts as the source of truth.
+// minSdk 23 is set in android/app/build.gradle.kts (defaultConfig.minSdk = 23).
+
+plugins {
+    id "com.android.application"
+    id "dev.flutter.flutter-gradle-plugin"
+    id "com.google.gms.google-services"
+}
+
+android {
+    namespace "com.incredi.ai.auto.trader"
+    compileSdk flutter.compileSdkVersion
+    ndkVersion flutter.ndkVersion
+
+    defaultConfig {
+        applicationId "com.incredi.ai.auto.trader"
+        minSdk 23
+        targetSdk flutter.targetSdkVersion
+        versionCode flutter.versionCode
+        versionName flutter.versionName
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+flutter {
+    source "../.."
+}
