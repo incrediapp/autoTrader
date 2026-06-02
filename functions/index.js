@@ -23,6 +23,7 @@ const {
   createUserProfileHandler,
   completeOnboardingHandler,
 } = require('./src/strategy/setup');
+const { migrateGuestStrategiesHandler } = require('./src/strategy/migrate');
 
 const {
   applyAutopilotProposalsHandler,
@@ -76,6 +77,7 @@ exports.strategyReinterpret = onCall({ ...callableDefaults, timeoutSeconds: 120,
 exports.createStrategy = onCall(callableDefaults, createStrategyHandler);
 exports.createUserProfile = onCall(callableDefaults, createUserProfileHandler);
 exports.completeOnboarding = onCall(callableDefaults, completeOnboardingHandler);
+exports.migrateGuestStrategies = onCall({ ...callableDefaults, timeoutSeconds: 300, memory: '512MiB' }, migrateGuestStrategiesHandler);
 
 // ── Broker callables ─────────────────────────────────────────────────────────
 exports.connectBroker = onCall({ ...callableDefaults, timeoutSeconds: 60 }, async (request) => {
@@ -124,13 +126,35 @@ exports.connectBroker = onCall({ ...callableDefaults, timeoutSeconds: 60 }, asyn
 
     return { connected: true, broker, validationWarning };
   } else if (broker === 'ibkr') {
-    const { pingIbkrCredentials } = require('./src/brokers/ibkrSession');
+    const {
+      pingIbkrCredentials,
+      resetIbkrSession,
+      getIbkrOAuthDiagnostics,
+    } = require('./src/brokers/ibkrSession');
     try {
+      resetIbkrSession();
+      const diag = await getIbkrOAuthDiagnostics();
+      console.info('connectBroker ibkr oauth', diag);
       await pingIbkrCredentials();
     } catch (err) {
+      let diag = null;
+      try {
+        resetIbkrSession();
+        diag = await getIbkrOAuthDiagnostics();
+      } catch (_) { /* ignore */ }
+      console.error('connectBroker ibkr ping failed:', err.message, diag);
+      const hint = String(err.message).includes('Secret unavailable')
+        ? 'Upload IBKR secrets with ./scripts/sync-secrets-from-env.sh --only ibkr, then deploy connectBroker.'
+        : String(err.message).includes('invalid consumer')
+          ? require('./src/brokers/ibkrSession').invalidConsumerHint(diag)
+          : /DH_PRIME|BigInt|0xn/i.test(String(err.message))
+            ? 'IBKR_OAUTH_DH_PRIME in Secret Manager is invalid (often just "n"). Fix .env and run ./scripts/sync-secrets-from-env.sh --only ibkr'
+            : String(err.message).includes('live session token')
+              ? 'Check access token, encrypted secret (portal base64), and DH prime matches uploaded dhparam.pem.'
+              : 'Verify OAuth keys in Secret Manager / .env.';
       throw new HttpsError(
         'failed-precondition',
-        'IBKR credentials not configured on server. Add your OAuth keys to Secret Manager / .env.',
+        `IBKR connection failed: ${sanitiseErrorForClient(err.message)}. ${hint}`,
       );
     }
 
@@ -394,15 +418,70 @@ exports.getAnalytics = onCall(callableDefaults, async (request) => {
 
   await enforceRateLimit(userId, 'get_analytics');
 
-  const { strategyId } = request.data ?? {};
-  const user = (await getDb().doc(`users/${userId}`).get()).data();
+  try {
+    const { getAnalyticsHandler } = require('./src/features/analytics');
+    return await getAnalyticsHandler(userId, request.data ?? {});
+  } catch (err) {
+    if (err instanceof HttpsError) throw err;
+    console.error('getAnalytics failed', err);
+    throw new HttpsError('internal', err.message ?? 'Analytics failed');
+  }
+});
+
+exports.refreshMacroCalendarNow = onCall(
+  { ...callableDefaults, timeoutSeconds: 120, memory: '512MiB' },
+  async (request) => {
+    const userId = request.auth?.uid;
+    if (!userId) throw new HttpsError('unauthenticated', 'Authentication required');
+
+    await enforceRateLimit(userId, 'refresh_macro_calendar');
+
+    const { refreshMacroCalendarData } = require('./src/features/macroCalendar');
+    return refreshMacroCalendarData();
+  },
+);
+
+exports.diagnoseIbkrOAuth = onCall(callableDefaults, async (request) => {
+  const userId = request.auth?.uid;
+  if (!userId) throw new HttpsError('unauthenticated', 'Authentication required');
+
+  const {
+    pingIbkrCredentials,
+    resetIbkrSession,
+    getIbkrOAuthDiagnostics,
+  } = require('./src/brokers/ibkrSession');
+
+  resetIbkrSession();
+  const config = await getIbkrOAuthDiagnostics();
+
+  try {
+    await pingIbkrCredentials();
+    return {
+      ok: true,
+      projectId: process.env.GCLOUD_PROJECT || process.env.GCP_PROJECT || null,
+      ...config,
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      projectId: process.env.GCLOUD_PROJECT || process.env.GCP_PROJECT || null,
+      ...config,
+      error: sanitiseErrorForClient(err.message),
+    };
+  }
+});
+
+exports.syncStrategyStats = onCall(callableDefaults, async (request) => {
+  const userId = request.auth?.uid;
+  if (!userId) throw new HttpsError('unauthenticated', 'Authentication required');
+
+  const { syncAllStrategyStatsForUser, recomputeStrategyStatsFromTrades } = require('./src/strategy/statsSync');
+  const strategyId = request.data?.strategyId;
 
   if (strategyId) {
-    const strat = (await getDb().doc(`users/${userId}/strategies/${strategyId}`).get()).data();
-    return { userId, strategyId, stats: strat?.stats ?? {} };
+    return { strategies: [await recomputeStrategyStatsFromTrades(userId, strategyId)] };
   }
-
-  return { userId, stats: user?.stats ?? {} };
+  return { strategies: await syncAllStrategyStatsForUser(userId) };
 });
 
 exports.updateFcmToken = onCall(callableDefaults, async (request) => {

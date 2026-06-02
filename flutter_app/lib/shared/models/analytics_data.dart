@@ -16,6 +16,17 @@ class AnalyticsQuery {
         if (strategyId != null) 'strategyId': strategyId,
         if (mode != null) 'mode': mode,
       };
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is AnalyticsQuery &&
+          range == other.range &&
+          strategyId == other.strategyId &&
+          mode == other.mode;
+
+  @override
+  int get hashCode => Object.hash(range, strategyId, mode);
 }
 
 class EquityPoint {

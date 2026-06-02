@@ -204,4 +204,5 @@ function formatPct(value) {
 module.exports = {
   fetchCrossMarketContext,
   formatCrossMarketBlock,
+  fetchYahooChart,
 };

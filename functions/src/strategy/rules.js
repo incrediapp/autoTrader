@@ -1,4 +1,29 @@
-function getIndicatorVars(market, portfolio, symbol) {
+function getBaselineVars(market, strategy) {
+  const vars = {};
+  const configs = strategy?.signals ?? [];
+
+  for (const cfg of configs) {
+    const marketKey = cfg.marketKey ?? cfg.id;
+    const node = market.crossMarket?.[marketKey];
+    const idUpper = cfg.id.toUpperCase();
+    vars[`${idUpper}_CHANGE_SINCE_BASELINE`] = (node?.changeSinceBaselinePct ?? 0) / 100;
+    vars[`${idUpper}_CHANGE_SINCE_BASELINE_ABS`] = (node?.changeSinceBaselineAbsPct ?? 0) / 100;
+    vars[`${idUpper}_BASELINE_MOVE_MET`] = node?.meetsMoveThreshold ? 1 : 0;
+    vars[`${idUpper}_IS_FIRST_BASELINE`] = node?.isFirstBaseline ? 1 : 0;
+  }
+
+  const dxy = market.crossMarket?.dxy;
+  if (dxy) {
+    vars.DXY_CHANGE_SINCE_BASELINE = (dxy.changeSinceBaselinePct ?? 0) / 100;
+    vars.DXY_CHANGE_SINCE_BASELINE_ABS = (dxy.changeSinceBaselineAbsPct ?? 0) / 100;
+    vars.DXY_BASELINE_MOVE_MET = dxy.meetsMoveThreshold ? 1 : 0;
+    vars.DXY_IS_FIRST_BASELINE = dxy.isFirstBaseline ? 1 : 0;
+  }
+
+  return vars;
+}
+
+function getIndicatorVars(market, portfolio, symbol, strategy = null) {
   const asset = market.assets?.find((a) => a.symbol === symbol)
     ?? market.assets?.[0];
   if (!asset) return {};
@@ -7,6 +32,7 @@ function getIndicatorVars(market, portfolio, symbol) {
   const symKey = symbol.replace(/[^A-Z0-9]/gi, '');
 
   return {
+    ...getBaselineVars(market, strategy),
     RSI_14: asset.rsi14 ?? 0,
     MACD_LINE: parseFloat(asset.macdLine) || 0,
     MACD_SIGNAL: parseFloat(asset.macdSignal) || 0,
@@ -98,11 +124,11 @@ function evaluateSimpleExpression(tokens, vars) {
   return stack.length ? stack[stack.length - 1] : false;
 }
 
-function evaluateCondition(condition, market, portfolio) {
+function evaluateCondition(condition, market, portfolio, strategy = null) {
   try {
     const symbols = market.assets?.map((a) => a.symbol) ?? [];
     for (const symbol of symbols) {
-      const vars = getIndicatorVars(market, portfolio, symbol);
+      const vars = getIndicatorVars(market, portfolio, symbol, strategy);
       const expanded = condition.replace(
         /POSITION_PNL_([A-Z0-9]+)|POSITION_([A-Z0-9]+)/g,
         (match) => match,
@@ -117,7 +143,7 @@ function evaluateCondition(condition, market, portfolio) {
 
     const primarySymbol = market.assets?.[0]?.symbol;
     if (primarySymbol) {
-      const vars = getIndicatorVars(market, portfolio, primarySymbol);
+      const vars = getIndicatorVars(market, portfolio, primarySymbol, strategy);
       const tokens = tokenizeCondition(condition);
       const resolvedTokens = tokens.map((t) => (t in vars ? String(vars[t]) : t));
       return Boolean(evaluateSimpleExpression(resolvedTokens, vars));
@@ -152,6 +178,9 @@ function parseNotionalFromRule(rule, portfolio) {
   }
   const usdAmt = action.match(/(\d+(?:\.\d+)?)\s*USD/);
   if (usdAmt) return parseFloat(usdAmt[1]);
+
+  const dollarSign = action.match(/\$(\d+(?:\.\d+)?)/);
+  if (dollarSign) return parseFloat(dollarSign[1]);
 
   const pctPos = action.match(/(\d+(?:\.\d+)?)\s*%\s*OF\s*POSITION/);
   if (pctPos) {
@@ -218,4 +247,5 @@ module.exports = {
   parseNotionalFromRule,
   applyProposalToRules,
   getIndicatorVars,
+  getBaselineVars,
 };

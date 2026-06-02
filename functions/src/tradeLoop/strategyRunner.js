@@ -6,12 +6,17 @@ const { getClaudeDecision, fallbackRuleEvaluation } = require('../claude/decisio
 const { fetchMarketData, enrichWithExternalData } = require('./marketData');
 const { validateDecision } = require('./validation');
 const { updatePositionAfterTrade } = require('../positions/fifo');
+const {
+  applyRealizedPnlToStrategy,
+  portfolioDrawdownUpdates,
+} = require('../strategy/statsSync');
 const { sendNotification } = require('../notifications/fcm');
 const { logError } = require('../monitoring/errors');
 const { incrementSystemMetric } = require('../monitoring/metrics');
 const { createLogContext, logWarn, logErrorLog } = require('../monitoring/logger');
 const { runShadowCycles } = require('../features/shadowMode');
 const { enqueuePostMortemIfNeeded } = require('../features/postMortem');
+const { commitSignalBaselines } = require('../features/signalBaselines');
 
 async function autoPauseStrategy(strategy, userId, reason) {
   await getDb().doc(`users/${userId}/strategies/${strategy.strategyId}`).update({
@@ -157,9 +162,13 @@ async function updateStrategyStats(strategy, userId, portfolioSnapshot, claudeRe
   }
 
   const peak = Math.max(strategy.stats?.peakPortfolioValueUsd ?? 0, portfolioSnapshot.totalValueUsd);
-  updates['stats.peakPortfolioValueUsd'] = peak;
+  Object.assign(updates, portfolioDrawdownUpdates(strategy, portfolioSnapshot, peak));
 
   await ref.update(updates);
+
+  if (tradeResult?.realizedPnlUsd != null) {
+    await applyRealizedPnlToStrategy(ref, tradeResult.realizedPnlUsd);
+  }
 }
 
 async function executeOrSimulate(strategy, decision, userId, cycleId, claudeResult, source = 'strategy') {
@@ -223,7 +232,16 @@ async function executeOrSimulate(strategy, decision, userId, cycleId, claudeResu
     const updatedTrade = (await tradeRef.get()).data();
     await enqueuePostMortemIfNeeded(updatedTrade, strategy, userId);
 
-    return { tradeId, mode: 'paper', executedPriceUsd: currentPrice, executedQuantity: qty, side: decision.side, symbol: decision.symbol, executedNotionalUsd: decision.notionalUsd };
+    return {
+      tradeId,
+      mode: 'paper',
+      executedPriceUsd: currentPrice,
+      executedQuantity: qty,
+      side: decision.side,
+      symbol: decision.symbol,
+      executedNotionalUsd: decision.notionalUsd,
+      realizedPnlUsd: updatedTrade?.realizedPnlUsd ?? null,
+    };
   }
 
   const broker = getBrokerAdapter(strategy.assets.broker, userId, false, {
@@ -317,6 +335,7 @@ async function executeOrSimulate(strategy, decision, userId, cycleId, claudeResu
   await incrementSystemMetric('liveTradesToday', 1);
   await incrementSystemMetric('notionalVolumeUsdToday', brokerResult.executedNotionalUsd ?? 0);
 
+  const updatedTrade = (await tradeRef.get()).data();
   return {
     tradeId,
     mode: 'live',
@@ -325,6 +344,7 @@ async function executeOrSimulate(strategy, decision, userId, cycleId, claudeResu
     executedNotionalUsd: brokerResult.executedNotionalUsd,
     side: decision.side,
     symbol: decision.symbol,
+    realizedPnlUsd: updatedTrade?.realizedPnlUsd ?? null,
   };
 }
 
@@ -439,13 +459,69 @@ async function runStrategyLoop(strategy, triggeredBy, runId, options = {}) {
 
     phaseStart = Date.now();
     let portfolioSnapshot;
-    try {
-      portfolioSnapshot = await fetchPortfolio(strategy, userId);
-    } catch (err) {
-      await handleBrokerFailure(strategy, userId, err);
-      return skipCycle(cycleRef, 'broker_portfolio_fetch_failed', { cycleId, strategyId, errorMessage: err.message });
+    let marketSnapshot;
+    let claudeResult;
+    const previewContext = options.previewByStrategyId?.[strategyId];
+
+    if (previewContext) {
+      portfolioSnapshot = previewContext.portfolioSnapshot;
+      marketSnapshot = previewContext.marketSnapshot;
+      claudeResult = previewContext.claudeResult;
+      phases.portfolioMs = 0;
+      phases.marketDataMs = 0;
+      phases.externalDataMs = 0;
+      phases.claudeMs = 0;
+    } else {
+      try {
+        portfolioSnapshot = await fetchPortfolio(strategy, userId);
+      } catch (err) {
+        await handleBrokerFailure(strategy, userId, err);
+        return skipCycle(cycleRef, 'broker_portfolio_fetch_failed', { cycleId, strategyId, errorMessage: err.message });
+      }
+      phases.portfolioMs = Date.now() - phaseStart;
+
+      phaseStart = Date.now();
+      try {
+        marketSnapshot = await fetchMarketData(strategy, userId);
+      } catch (err) {
+        await handleBrokerFailure(strategy, userId, err);
+        return skipCycle(cycleRef, 'market_data_fetch_failed', { cycleId, strategyId, errorMessage: err.message });
+      }
+
+      if (marketSnapshot.dataStale) {
+        logWarn(ctx, `Market data stale (${marketSnapshot.dataFreshnessMs}ms)`);
+        return skipCycle(cycleRef, 'market_data_stale', { cycleId, strategyId, marketSnapshot, portfolioSnapshot });
+      }
+      phases.marketDataMs = Date.now() - phaseStart;
+
+      phaseStart = Date.now();
+      marketSnapshot = await enrichWithExternalData(marketSnapshot, strategy);
+      phases.externalDataMs = Date.now() - phaseStart;
+
+      phaseStart = Date.now();
+      const upcomingEvents = marketSnapshot.macroEvents ?? [];
+      try {
+        claudeResult = await getClaudeDecision(strategy, portfolioSnapshot, marketSnapshot, upcomingEvents);
+      } catch (err) {
+        if (strategy.decisionMode === 'rule_interpreter') {
+          claudeResult = await fallbackRuleEvaluation(strategy, marketSnapshot, portfolioSnapshot);
+        } else {
+          await logError({
+            source: 'claude_api',
+            severity: 'error',
+            userId,
+            strategyId,
+            cycleId,
+            message: err.message,
+            stack: err.stack,
+          });
+          return skipCycle(cycleRef, 'claude_api_failed', {
+            cycleId, strategyId, marketSnapshot, portfolioSnapshot, errorMessage: err.message,
+          });
+        }
+      }
+      phases.claudeMs = Date.now() - phaseStart;
     }
-    phases.portfolioMs = Date.now() - phaseStart;
 
     phaseStart = Date.now();
     const drawdownResult = checkDrawdown(portfolioSnapshot, strategy);
@@ -468,48 +544,6 @@ async function runStrategyLoop(strategy, triggeredBy, runId, options = {}) {
     phaseStart = Date.now();
     const stopChecks = await checkStopLossAndTakeProfit(strategy, userId, portfolioSnapshot, cycleId);
     phases.stopCheckMs = Date.now() - phaseStart;
-
-    phaseStart = Date.now();
-    let marketSnapshot;
-    try {
-      marketSnapshot = await fetchMarketData(strategy, userId);
-    } catch (err) {
-      await handleBrokerFailure(strategy, userId, err);
-      return skipCycle(cycleRef, 'market_data_fetch_failed', { cycleId, strategyId, errorMessage: err.message });
-    }
-
-    if (marketSnapshot.dataStale) {
-      logWarn(ctx, `Market data stale (${marketSnapshot.dataFreshnessMs}ms)`);
-      return skipCycle(cycleRef, 'market_data_stale', { cycleId, strategyId, marketSnapshot, portfolioSnapshot });
-    }
-    phases.marketDataMs = Date.now() - phaseStart;
-
-    phaseStart = Date.now();
-    marketSnapshot = await enrichWithExternalData(marketSnapshot, strategy);
-    phases.externalDataMs = Date.now() - phaseStart;
-
-    phaseStart = Date.now();
-    let claudeResult;
-    const upcomingEvents = marketSnapshot.macroEvents ?? [];
-    try {
-      claudeResult = await getClaudeDecision(strategy, portfolioSnapshot, marketSnapshot, upcomingEvents);
-    } catch (err) {
-      if (strategy.decisionMode === 'rule_interpreter') {
-        claudeResult = await fallbackRuleEvaluation(strategy, marketSnapshot, portfolioSnapshot);
-      } else {
-        await logError({
-          source: 'claude_api',
-          severity: 'error',
-          userId,
-          strategyId,
-          cycleId,
-          message: err.message,
-          stack: err.stack,
-        });
-        return skipCycle(cycleRef, 'claude_api_failed', { cycleId, strategyId, marketSnapshot, portfolioSnapshot, errorMessage: err.message });
-      }
-    }
-    phases.claudeMs = Date.now() - phaseStart;
 
     phaseStart = Date.now();
     const { decision, validationNotes } = validateDecision(
@@ -575,6 +609,8 @@ async function runStrategyLoop(strategy, triggeredBy, runId, options = {}) {
       phases,
     });
 
+    await commitSignalBaselines(strategy, userId, marketSnapshot.crossMarket);
+
     getDb()
       .collection(`users/${userId}/strategies/${strategyId}/shadowConfigs`)
       .where('status', '==', 'active')
@@ -637,10 +673,14 @@ async function runStrategyLoop(strategy, triggeredBy, runId, options = {}) {
 async function previewStrategyDecision(strategy, userId) {
   try {
     const portfolioSnapshot = await fetchPortfolio(strategy, userId);
-    const marketSnapshot = await enrichWithExternalData(
-      await fetchMarketData(strategy, userId),
-      strategy,
-    );
+    let marketSnapshot = await fetchMarketData(strategy, userId);
+    if (marketSnapshot.dataStale) {
+      return {
+        strategy,
+        preview: { action: 'hold', reasoning: 'Market data stale', confidence: null },
+      };
+    }
+    marketSnapshot = await enrichWithExternalData(marketSnapshot, strategy);
     const claudeResult = await getClaudeDecision(
       strategy,
       portfolioSnapshot,
@@ -648,7 +688,13 @@ async function previewStrategyDecision(strategy, userId) {
       marketSnapshot.macroEvents ?? [],
     );
     const { decision } = validateDecision(claudeResult.decision, strategy, portfolioSnapshot, marketSnapshot);
-    return { strategy, preview: decision };
+    return {
+      strategy,
+      preview: decision,
+      portfolioSnapshot,
+      marketSnapshot,
+      claudeResult,
+    };
   } catch {
     return { strategy, preview: { action: 'hold', reasoning: 'Preview unavailable', confidence: 0 } };
   }

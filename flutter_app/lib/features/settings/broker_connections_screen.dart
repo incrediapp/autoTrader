@@ -21,12 +21,91 @@ class _BrokerConnectionsScreenState extends ConsumerState<BrokerConnectionsScree
   String _broker = 'binance';
   bool _testnetEnabled = true;
   bool _loading = false;
+  bool _diagnosing = false;
 
   @override
   void dispose() {
     _apiKey.dispose();
     _apiSecret.dispose();
     super.dispose();
+  }
+
+  Future<void> _diagnoseIbkr() async {
+    setState(() => _diagnosing = true);
+    try {
+      final result =
+          await ref.read(cloudFunctionsProvider).diagnoseIbkrOAuth();
+      if (!mounted) return;
+      await showDialog<void>(
+        context: context,
+        builder: (ctx) {
+          final ok = result['ok'] == true;
+          final lines = <String>[
+            if (result['ok'] != null) 'Status: ${ok ? 'OK' : 'Failed'}',
+            if (result['consumerKey'] != null)
+              'Consumer key: ${result['consumerKey']}',
+            if (result['realm'] != null) 'Realm: ${result['realm']}',
+            if (result['dhPrimeLength'] != null)
+              'DH prime length: ${result['dhPrimeLength']}',
+            if (result['accessTokenLength'] != null)
+              'Access token length: ${result['accessTokenLength']}',
+            if (result['accessTokenSecretLength'] != null)
+              'Token secret length: ${result['accessTokenSecretLength']}',
+            if (result['projectId'] != null)
+              'Project: ${result['projectId']}',
+            if (result['signatureSecretSource'] != null)
+              'Sig source: ${result['signatureSecretSource']}',
+            if (result['signaturePemFingerprint'] != null)
+              'Sig loaded: ${result['signaturePemFingerprint']} (expect 36862d15b95f)',
+            if (result['smLatestsignatureFingerprint'] != null)
+              'Sig in SM: ${result['smLatestsignatureFingerprint']}',
+            if (result['deployedsignatureFingerprint'] != null)
+              'Sig deployed: ${result['deployedsignatureFingerprint']}',
+            if (result['encryptionPemFingerprint'] != null)
+              'Enc loaded: ${result['encryptionPemFingerprint']}',
+            if (result['egressIp'] != null)
+              'Cloud egress IP: ${result['egressIp']}',
+            if (result['httpProxyConfigured'] == true)
+              'IBKR HTTP proxy: configured',
+            if (result['credentialsLookValid'] == true && result['ok'] != true)
+              'Keys look valid — likely IBKR blocking Google Cloud IP.',
+            if (result['error'] != null) 'Error: ${result['error']}',
+          ];
+          return AlertDialog(
+            icon: Icon(
+              ok ? Icons.check_circle_outline : Icons.error_outline,
+              color: ok
+                  ? Theme.of(ctx).colorScheme.primary
+                  : Theme.of(ctx).colorScheme.error,
+            ),
+            title: Text(ok ? 'IBKR OAuth OK' : 'IBKR OAuth failed'),
+            content: SelectableText(lines.join('\n')),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('Close'),
+              ),
+            ],
+          );
+        },
+      );
+    } on FirebaseFunctionsException catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(friendlyCloudFunctionError(e.code, e.message)),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Diagnosis failed: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _diagnosing = false);
+    }
   }
 
   Future<void> _connect() async {
@@ -103,6 +182,18 @@ class _BrokerConnectionsScreenState extends ConsumerState<BrokerConnectionsScree
               'IBKR uses your personal OAuth credentials stored on the server '
               '(.env / Secret Manager). Tap Connect to enable IBKR strategies.',
               style: Theme.of(context).textTheme.bodyMedium,
+            ),
+            const SizedBox(height: 12),
+            OutlinedButton.icon(
+              onPressed: _diagnosing || _loading ? null : _diagnoseIbkr,
+              icon: _diagnosing
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.health_and_safety_outlined),
+              label: const Text('Test IBKR OAuth'),
             ),
           ] else ...[
             SwitchListTile(

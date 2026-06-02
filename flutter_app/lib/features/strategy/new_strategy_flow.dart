@@ -73,6 +73,10 @@ class _NewStrategyFlowState extends ConsumerState<NewStrategyFlow> {
         _messages.add({'role': 'assistant', 'text': reply});
         if (result['needsClarification'] == false) {
           _setupSummary = result;
+          final signals = result['signals'];
+          if (signals is List && signals.isNotEmpty) {
+            _decisionMode = 'rule_interpreter';
+          }
           final suggested = result['suggestedAssets'];
           if (suggested is List && suggested.isNotEmpty) {
             _assets
@@ -142,6 +146,7 @@ class _NewStrategyFlowState extends ConsumerState<NewStrategyFlow> {
         'decisionMode': _decisionMode,
         'claudeSummary': summary,
         'rules': _setupSummary?['rules'] ?? [],
+        'signals': _setupSummary?['signals'] ?? [],
         'risk': {
           'maxLossPerTradePct': _maxLoss,
           'maxDrawdownPct': _maxDrawdown,
@@ -231,14 +236,14 @@ class _NewStrategyFlowState extends ConsumerState<NewStrategyFlow> {
             groupValue: _decisionMode,
             onChanged: (v) => setState(() => _decisionMode = v!),
             title: const Text('Rule Interpreter'),
-            subtitle: const Text('Predictable, cheaper'),
+            subtitle: const Text('Exact rules, baselines, step sizes — recommended'),
           ),
           RadioListTile(
             value: 'autonomous_reasoner',
             groupValue: _decisionMode,
             onChanged: (v) => setState(() => _decisionMode = v!),
             title: const Text('Autonomous'),
-            subtitle: const Text('Flexible, costs more'),
+            subtitle: const Text('Judgment calls — not for precise % thresholds'),
           ),
           const Spacer(),
           FilledButton(onPressed: _name.text.isNotEmpty ? _next : null, child: const Text('Next')),

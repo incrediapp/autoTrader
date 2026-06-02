@@ -9,16 +9,21 @@ class AuthRepository {
 
   final FirebaseAuth _auth;
   Future<void>? _googleInit;
-  static bool _initialized = false;
 
   /// Wait for Firebase Auth to restore any persisted session (required on web).
   static Future<void> ensureInitialized(FirebaseAuth auth) async {
-    if (_initialized) return;
     if (kIsWeb) {
       await auth.setPersistence(Persistence.LOCAL);
     }
     await auth.authStateChanges().first;
-    _initialized = true;
+    if (kIsWeb && auth.currentUser == null) {
+      // On web, IndexedDB restore can briefly lag behind the first stream event
+      // (especially after hot restart). Poll briefly before treating as signed out.
+      for (var i = 0; i < 20; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+        if (auth.currentUser != null) break;
+      }
+    }
   }
 
   Stream<User?> authStateChanges() => _auth.authStateChanges();

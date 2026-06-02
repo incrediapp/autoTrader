@@ -25,11 +25,31 @@ class _AnalyticsDashboardScreenState
   String? _strategyId;
   String? _mode;
 
-  AnalyticsQuery get _query => AnalyticsQuery(
+  late AnalyticsQuery _query = AnalyticsQuery(
+    range: _range,
+    strategyId: _strategyId,
+    mode: _mode,
+  );
+
+  void _updateFilters({
+    String? range,
+    String? strategyId,
+    bool clearStrategy = false,
+  }) {
+    setState(() {
+      if (range != null) _range = range;
+      if (clearStrategy) {
+        _strategyId = null;
+      } else if (strategyId != null) {
+        _strategyId = strategyId;
+      }
+      _query = AnalyticsQuery(
         range: _range,
         strategyId: _strategyId,
         mode: _mode,
       );
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -52,7 +72,7 @@ class _AnalyticsDashboardScreenState
                     child: ChoiceChip(
                       label: Text(r),
                       selected: _range == r,
-                      onSelected: (_) => setState(() => _range = r),
+                      onSelected: (_) => _updateFilters(range: r),
                     ),
                   ),
               ],
@@ -73,7 +93,10 @@ class _AnalyticsDashboardScreenState
                     ),
                   ),
                 ],
-                onChanged: (v) => setState(() => _strategyId = v),
+                onChanged: (v) => _updateFilters(
+                      strategyId: v,
+                      clearStrategy: v == null,
+                    ),
               ),
             ),
             loading: () => const SizedBox.shrink(),
@@ -85,7 +108,9 @@ class _AnalyticsDashboardScreenState
               loading: () => const SkeletonList(),
               error: (e, _) => ErrorState(
                 error: e,
-                onRetry: () => ref.invalidate(analyticsProvider(_query)),
+                onRetry: () {
+                  ref.invalidate(analyticsProvider(_query));
+                },
               ),
             ),
           ),

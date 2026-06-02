@@ -26,9 +26,9 @@
 
 | Function | Trigger | Concurrency | Timeout | Memory |
 |---|---|---|---|---|
-| `tradeLoopScheduled` | Cloud Scheduler, every 15 min | max 5 instances | 540s | 1GB |
+| `tradeLoopScheduled` | Cloud Scheduler, every 1 hr | max 5 instances | 540s | 1GB |
 | `tradeLoopOnPriceEvent` | Firestore onWrite `priceEvents/*` | max 20 instances | 120s | 512MB |
-| `priceMonitor` | Cloud Scheduler, every 5 min | max 2 instances | 120s | 512MB |
+| `priceMonitor` | Cloud Scheduler, every 20 min | max 2 instances | 120s | 512MB |
 | `ibkrFillPoller` | Cloud Scheduler, every 2 min | max 1 instance | 60s | 256MB |
 | `strategySetup` | HTTPS callable | max 10 | 120s | 512MB |
 | `strategyReinterpret` | HTTPS callable | max 10 | 120s | 512MB |
@@ -52,7 +52,7 @@
 // functions/src/tradeLoop/scheduled.js
 
 exports.tradeLoopScheduled = onSchedule({
-  schedule: 'every 15 minutes',
+  schedule: 'every 1 hours',
   timeZone: 'UTC',
   maxInstances: 5,
   timeoutSeconds: 540,

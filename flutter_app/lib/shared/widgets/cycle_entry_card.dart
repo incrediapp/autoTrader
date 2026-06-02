@@ -67,6 +67,15 @@ class CycleEntryCard extends StatelessWidget {
                         ),
                         const SizedBox(width: 8),
                         Text(when, style: Theme.of(context).textTheme.labelSmall),
+                        if (cycle.triggeredBy != null) ...[
+                          const SizedBox(width: 8),
+                          Text(
+                            cycle.triggeredBy == 'manual' ? 'Manual' : 'Scheduled',
+                            style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                                  color: Theme.of(context).colorScheme.outline,
+                                ),
+                          ),
+                        ],
                         if (cycle.decision.confidence != null) ...[
                           const Spacer(),
                           Text(

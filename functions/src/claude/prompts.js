@@ -1,8 +1,9 @@
 const { PROMPT_VERSIONS } = require('./client');
 const { formatVolume } = require('../utils/helpers');
 const { formatCrossMarketBlock } = require('../features/crossMarketContext');
+const { formatSignalBaselinesBlock } = require('../features/signalBaselines');
 
-function formatMarketDataCompact(snapshot, primarySymbol) {
+function formatMarketDataCompact(snapshot, primarySymbol, strategy = null) {
   const primary = snapshot.assets?.find((a) => a.symbol === primarySymbol);
   if (!primary) return 'No data for symbol';
 
@@ -23,6 +24,7 @@ function formatMarketDataCompact(snapshot, primarySymbol) {
   }
   if (snapshot.crossMarket) {
     out += formatCrossMarketBlock(snapshot.crossMarket);
+    out += formatSignalBaselinesBlock(snapshot.crossMarket, strategy?.signals ?? []);
   }
   return out;
 }
@@ -44,9 +46,20 @@ function buildStrategySetupPrompt({ decisionMode, userDescription, previousMessa
     ? `\nNote: Clarification round ${clarifyRound}/5. If clear enough, proceed with reasonable defaults.\n`
     : '';
 
+  const modeGuidance = decisionMode === 'rule_interpreter'
+    ? `Use rule_interpreter output:
+- Emit executable rules with conditions using ONLY supported variables (RSI_14, MACD_HISTOGRAM, PRICE, DXY_CHANGE_SINCE_BASELINE, DXY_CHANGE_SINCE_BASELINE_ABS, {SIGNAL_ID}_CHANGE_SINCE_BASELINE, etc.).
+- Percent thresholds in conditions are decimals: 0.01% move = 0.0001 in the condition (vars are stored as fractions).
+- Actions: "BUY SYMBOL $N USD" or "SELL SYMBOL $N USD"; add SCALE_STEPS in action when each threshold step stacks notional.
+- For rolling baseline strategies, include a "signals" entry (per_cycle baseline on an external index).`
+    : `Use autonomous_reasoner output:
+- Best for qualitative judgment, not precise step sizes or baseline math.
+- Still emit rules/signals when the user describes numeric thresholds — recommend rule_interpreter in riskNotes if they need exact execution.`;
+
   return `You are an expert trading strategy analyst. Respond ONLY with valid JSON starting with {.
 
 Decision mode: ${decisionMode}
+${modeGuidance}
 ${history}
 User's strategy description:
 "${userDescription}"
@@ -59,7 +72,8 @@ Output schema:
   "needsClarification": boolean,
   "clarifyingQuestions": string[],
   "summary": string,
-  "rules": [{ "ruleId": string, "description": string, "condition": string, "action": string, "priority": number, "notes": string|null }],
+  "rules": [{ "ruleId": string, "description": string, "condition": string, "action": string, "priority": number, "notes": string|null, "scaleByBaselineSteps": boolean|null }],
+  "signals": [{ "id": string, "label": string|null, "source": "yahoo", "symbol": string, "marketKey": string, "baselineMode": "per_cycle", "thresholdPct": number, "freshFetch": boolean|null, "maxStepNotionalUsd": number|null }],
   "suggestedAssets": string[] (Binance: BTCUSDT/ETHUSDT only — no ETF names or descriptions),
   "suggestedBroker": "binance"|"ibkr",
   "suggestedCheckIntervalMinutes": number,
@@ -79,7 +93,7 @@ Trade to be executed:
 ${decision.side?.toUpperCase()} ${decision.symbol} — $${(decision.notionalUsd ?? 0).toFixed(2)}
 
 Market:
-${formatMarketDataCompact(market, decision.symbol)}
+${formatMarketDataCompact(market, decision.symbol, strategy)}
 
 Portfolio:
 Total: $${portfolio.totalValueUsd.toFixed(2)} | Cash: $${portfolio.cashUsd.toFixed(2)}
@@ -109,6 +123,12 @@ Volume 24h: ${formatVolume(asset.volume24h ?? 0)}`;
     ).join('\n')}\n`
     : '';
 
+  const crossMarketBlock = formatCrossMarketBlock(market.crossMarket);
+  const signalBaselinesBlock = formatSignalBaselinesBlock(
+    market.crossMarket,
+    strategy.signals ?? [],
+  );
+
   return `You are an autonomous AI trading agent. Respond ONLY with valid JSON starting with {.
 
 Strategy: ${strategy.description}
@@ -124,7 +144,7 @@ Market (${new Date(market.fetchedAt).toISOString()}):
 ${assetsBlock}
 ${market.fearGreedIndex != null ? `Fear & Greed: ${market.fearGreedIndex}/100 — ${market.fearGreedLabel}` : ''}
 ${market.newsHeadlines?.length ? `News:\n${market.newsHeadlines.map((h) => `• ${h}`).join('\n')}` : ''}
-${formatCrossMarketBlock(market.crossMarket)}
+${crossMarketBlock}${signalBaselinesBlock}
 ${macroBlock}
 
 Portfolio: $${portfolio.totalValueUsd.toFixed(2)} | Cash: $${portfolio.cashUsd.toFixed(2)}

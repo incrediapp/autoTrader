@@ -26,7 +26,7 @@ async function runShadowCycles(parentStrategy, portfolioSnapshot, marketSnapshot
       if (shadowStrategy.decisionMode === 'rule_interpreter') {
         const triggered = (shadowStrategy.rules ?? [])
           .filter((r) => r.active)
-          .filter((r) => evaluateCondition(r.condition, marketSnapshot, portfolioSnapshot));
+          .filter((r) => evaluateCondition(r.condition, marketSnapshot, portfolioSnapshot, shadowStrategy));
 
         if (triggered.length === 0) {
           decision = { action: 'hold', reasoning: 'No shadow rules triggered' };

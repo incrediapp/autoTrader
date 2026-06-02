@@ -4,16 +4,25 @@ const { previewStrategyDecision } = require('../tradeLoop/strategyRunner');
 const { sendNotification } = require('../notifications/fcm');
 
 async function detectAndResolveConflicts(eligibleStrategies) {
+  const previewByStrategyId = {};
+
   if (eligibleStrategies.length < 2) {
-    return { eligibleAfterConflicts: eligibleStrategies, conflicts: [] };
+    return { eligibleAfterConflicts: eligibleStrategies, conflicts: [], previewByStrategyId };
   }
 
   const previews = await Promise.all(
-    eligibleStrategies.map(async (strategy) => ({
-      strategy,
-      preview: (await previewStrategyDecision(strategy, strategy.userId)).preview,
-    })),
+    eligibleStrategies.map(async (strategy) => previewStrategyDecision(strategy, strategy.userId)),
   );
+
+  for (const entry of previews) {
+    if (entry.portfolioSnapshot && entry.marketSnapshot && entry.claudeResult) {
+      previewByStrategyId[entry.strategy.strategyId] = {
+        portfolioSnapshot: entry.portfolioSnapshot,
+        marketSnapshot: entry.marketSnapshot,
+        claudeResult: entry.claudeResult,
+      };
+    }
+  }
 
   const heldStrategyIds = new Set();
   const conflicts = [];
@@ -119,7 +128,7 @@ async function detectAndResolveConflicts(eligibleStrategies) {
     (s) => !heldStrategyIds.has(s.strategyId),
   );
 
-  return { eligibleAfterConflicts, conflicts };
+  return { eligibleAfterConflicts, conflicts, previewByStrategyId };
 }
 
 async function resolveConflictHandler(userId, { conflictId, executeStrategyId }) {

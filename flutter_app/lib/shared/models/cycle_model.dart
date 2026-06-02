@@ -184,6 +184,7 @@ class CycleModel {
   final bool error;
   final String? errorMessage;
   final String? claudeRawResponse;
+  final String? triggeredBy;
 
   const CycleModel({
     required this.cycleId,
@@ -203,6 +204,7 @@ class CycleModel {
     this.error = false,
     this.errorMessage,
     this.claudeRawResponse,
+    this.triggeredBy,
   });
 
   factory CycleModel.fromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
@@ -236,6 +238,7 @@ class CycleModel {
       error: parseBool(json['error']),
       errorMessage: json['errorMessage']?.toString(),
       claudeRawResponse: json['claudeRawResponse']?.toString(),
+      triggeredBy: json['triggeredBy']?.toString(),
     );
   }
 }

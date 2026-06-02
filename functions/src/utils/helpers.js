@@ -55,6 +55,14 @@ function isWithinActiveHours(strategy, now = new Date()) {
   return current >= start || current < end;
 }
 
+function isStrategyDueForCycle(strategy, now = new Date()) {
+  const intervalMin = strategy.schedule?.checkIntervalMinutes ?? 15;
+  const lastMs = strategy.lastCycleAt?.toMillis?.()
+    ?? (strategy.lastCycleAt ? new Date(strategy.lastCycleAt).getTime() : 0);
+  if (!lastMs) return true;
+  return (now.getTime() - lastMs) >= intervalMin * 60 * 1000;
+}
+
 function checkDrawdown(portfolioSnapshot, strategy) {
   const peak = strategy.stats?.peakPortfolioValueUsd ?? portfolioSnapshot.totalValueUsd;
   const current = portfolioSnapshot.totalValueUsd;
@@ -136,6 +144,7 @@ module.exports = {
   generateErrorId,
   detectAssetClass,
   isWithinActiveHours,
+  isStrategyDueForCycle,
   checkDrawdown,
   formatDuration,
   formatVolume,

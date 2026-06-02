@@ -56,8 +56,8 @@ String? _resolveRedirect(Ref ref, GoRouterState state) {
   final userState = ref.read(userProvider);
   final loc = state.matchedLocation;
 
-  // Stream may not have emitted yet even after main() init — keep bootstrapping.
-  if (!authState.hasValue && authState.isLoading) {
+  // Wait for the auth stream's first emission (after main() ensureInitialized).
+  if (!authState.hasValue) {
     return loc == '/bootstrap' ? null : '/bootstrap';
   }
 

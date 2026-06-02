@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
-# Decrypt IBKR access token secret from the Self-Service OAuth portal.
-# Usage: ./scripts/decrypt-ibkr-access-token-secret.sh ENCRYPTED_HEX_OR_FILE
+# Optional: decrypt IBKR portal access token secret (hex ciphertext) for debugging.
 #
-# Paste the encrypted access token secret from the IBKR portal as the argument,
-# or pass a file containing it (hex string).
+# For autoTrader / ibkr-client you normally do NOT use this output in .env.
+# Set IBKR_OAUTH_ACCESS_TOKEN_SECRET to the encrypted value from the IBKR portal
+# (base64), which the client decrypts with private_encryption.pem.
+#
+# Usage: ./scripts/decrypt-ibkr-access-token-secret.sh ENCRYPTED_HEX_OR_FILE
 
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"

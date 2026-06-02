@@ -5,7 +5,7 @@ const { fetchMarketData } = require('./marketData');
 const { createLogContext, logInfo } = require('../monitoring/logger');
 
 const priceMonitor = onSchedule(withAppSecrets({
-  schedule: 'every 5 minutes',
+  schedule: 'every 20 minutes',
   timeZone: 'UTC',
   maxInstances: 2,
   timeoutSeconds: 120,

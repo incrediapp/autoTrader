@@ -51,6 +51,18 @@ class CloudFunctionsService {
   Future<Map<String, dynamic>> createStrategy(Map<String, dynamic> config) =>
       _call('createStrategy', config);
 
+  Future<Map<String, dynamic>> migrateGuestStrategies({
+    required String sourceUserId,
+    bool withHistory = true,
+    List<String>? strategyIds,
+  }) =>
+      _call('migrateGuestStrategies', {
+        'sourceUserId': sourceUserId,
+        'withHistory': withHistory,
+        if (strategyIds != null && strategyIds.isNotEmpty)
+          'strategyIds': strategyIds,
+      });
+
   Future<Map<String, dynamic>> manualCycleTrigger(String strategyId) =>
       _call('manualCycleTrigger', {'strategyId': strategyId});
 
@@ -101,6 +113,14 @@ class CloudFunctionsService {
   Future<Map<String, dynamic>> getAnalytics(Map<String, dynamic> query) =>
       _call('getAnalytics', query);
 
+  Future<Map<String, dynamic>> refreshMacroCalendarNow() =>
+      _call('refreshMacroCalendarNow', {});
+
+  Future<Map<String, dynamic>> syncStrategyStats({String? strategyId}) =>
+      _call('syncStrategyStats', {
+        if (strategyId != null) 'strategyId': strategyId,
+      });
+
   Future<void> updateFcmToken(String token) =>
       _call('updateFcmToken', {'token': token});
 
@@ -114,6 +134,9 @@ class CloudFunctionsService {
         'testnetEnabled': testnetEnabled,
         if (credentials != null) ...credentials,
       });
+
+  Future<Map<String, dynamic>> diagnoseIbkrOAuth() =>
+      _call('diagnoseIbkrOAuth', {});
 
   Future<Map<String, dynamic>> applyAutopilotProposals({
     required String strategyId,

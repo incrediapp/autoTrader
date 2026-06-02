@@ -4,8 +4,8 @@ import '../models/analytics_data.dart';
 import 'cloud_functions_provider.dart';
 
 final analyticsProvider =
-    FutureProvider.family<AnalyticsData, AnalyticsQuery>((ref, query) async {
-  final fn = ref.watch(cloudFunctionsProvider);
+    FutureProvider.autoDispose.family<AnalyticsData, AnalyticsQuery>((ref, query) async {
+  final fn = ref.read(cloudFunctionsProvider);
   final result = await fn.getAnalytics(query.toJson());
   return AnalyticsData.fromJson(result);
 });

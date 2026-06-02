@@ -4,7 +4,9 @@ let initialized = false;
 
 function initFirebase() {
   if (!initialized) {
-    admin.initializeApp();
+    if (!admin.apps.length) {
+      admin.initializeApp();
+    }
     initialized = true;
   }
 }

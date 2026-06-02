@@ -43,6 +43,11 @@ class StrategiesOverviewScreen extends ConsumerWidget {
         data: (strategies) {
           return RefreshIndicator(
             onRefresh: () async {
+              try {
+                await ref.read(cloudFunctionsProvider).syncStrategyStats();
+              } on FirebaseFunctionsException catch (_) {
+                // Firestore stream still refreshes below.
+              }
               ref.invalidate(strategiesProvider);
             },
             child: Column(
@@ -87,6 +92,28 @@ class StrategiesOverviewScreen extends ConsumerWidget {
       ),
     );
   }
+}
+
+double _cycleIntervalProgress(StrategyModel strategy) {
+  final last = strategy.lastCycleAt;
+  if (last == null) return 0;
+  final intervalMs = strategy.schedule.checkIntervalMinutes * 60 * 1000;
+  if (intervalMs <= 0) return 0;
+  final elapsed = DateTime.now().difference(last).inMilliseconds;
+  return (elapsed / intervalMs).clamp(0.0, 1.0);
+}
+
+String _nextCheckLabel(StrategyModel strategy) {
+  if (strategy.lastCycleAt == null) {
+    return 'First scheduled check pending';
+  }
+  final next = strategy.lastCycleAt!.add(
+    Duration(minutes: strategy.schedule.checkIntervalMinutes),
+  );
+  final remaining = next.difference(DateTime.now());
+  if (remaining.isNegative) return 'Due now';
+  if (remaining.inSeconds < 60) return 'Next check <1 min';
+  return 'Next check ~${remaining.inMinutes} min';
 }
 
 class _StrategyCard extends ConsumerWidget {
@@ -145,6 +172,12 @@ class _StrategyCard extends ConsumerWidget {
                         100
                     : null,
               ),
+              if (strategy.stats.totalRealizedPnlUsd == 0 &&
+                  strategy.stats.totalTrades > 0)
+                Text(
+                  '${strategy.stats.totalTrades} trade(s) · open positions P&L on detail',
+                  style: Theme.of(context).textTheme.labelSmall,
+                ),
               if (strategy.lastCycleAt != null) ...[
                 const SizedBox(height: 8),
                 Text(
@@ -154,12 +187,12 @@ class _StrategyCard extends ConsumerWidget {
               ],
               const SizedBox(height: 8),
               LinearProgressIndicator(
-                value: 0.73,
+                value: _cycleIntervalProgress(strategy),
                 backgroundColor:
                     Theme.of(context).colorScheme.surfaceContainerHighest,
               ),
               Text(
-                'Next check ~${strategy.schedule.checkIntervalMinutes} min',
+                _nextCheckLabel(strategy),
                 style: Theme.of(context).textTheme.labelSmall,
               ),
             ],

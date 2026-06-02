@@ -11,6 +11,7 @@ const {
   ruleReasoningSchema,
 } = require('./parser');
 const { createLogContext, logWarn } = require('../monitoring/logger');
+const { scaleNotionalByBaselineSteps } = require('../features/signalBaselines');
 
 async function getClaudeDecision(strategy, portfolio, market, upcomingEvents = []) {
   if (strategy.decisionMode === 'rule_interpreter') {
@@ -21,7 +22,7 @@ async function getClaudeDecision(strategy, portfolio, market, upcomingEvents = [
 
 async function getClaudeDecisionRuleInterpreter(strategy, portfolio, market) {
   const activeRules = (strategy.rules ?? []).filter((r) => r.active);
-  const triggered = activeRules.filter((r) => evaluateCondition(r.condition, market, portfolio));
+  const triggered = activeRules.filter((r) => evaluateCondition(r.condition, market, portfolio, strategy));
 
   if (triggered.length === 0) {
     return {
@@ -40,11 +41,30 @@ async function getClaudeDecisionRuleInterpreter(strategy, portfolio, market) {
   }
 
   const topRule = [...triggered].sort((a, b) => a.priority - b.priority)[0];
+  const baseNotional = parseNotionalFromRule(topRule, portfolio);
+  const scaledNotional = scaleNotionalByBaselineSteps(topRule, strategy, market, baseNotional);
+
+  if (scaledNotional <= 0) {
+    return {
+      decision: {
+        action: 'hold',
+        reasoning: `Rule ${topRule.ruleId} matched but notional is $0 after baseline step scaling.`,
+        rulesTriggered: triggered.map((r) => r.ruleId),
+        confidence: null,
+      },
+      claudeCalled: false,
+      claudeMode: 'rule_interpreter',
+      promptTokens: 0,
+      completionTokens: 0,
+      costUsd: 0,
+    };
+  }
+
   const decision = {
     action: parseActionFromRule(topRule),
     symbol: parseSymbolFromRule(topRule),
     side: parseSideFromRule(topRule),
-    notionalUsd: parseNotionalFromRule(topRule, portfolio),
+    notionalUsd: scaledNotional,
     rulesTriggered: triggered.map((r) => r.ruleId),
   };
 
@@ -162,7 +182,7 @@ async function getClaudeDecisionAutonomous(strategy, portfolio, market, upcoming
 async function fallbackRuleEvaluation(strategy, market, portfolio) {
   const triggered = (strategy.rules ?? [])
     .filter((r) => r.active)
-    .filter((r) => evaluateCondition(r.condition, market, portfolio));
+    .filter((r) => evaluateCondition(r.condition, market, portfolio, strategy));
 
   if (triggered.length === 0) {
     return {

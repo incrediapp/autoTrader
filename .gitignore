@@ -15,6 +15,7 @@ firebase-debug.*.log
 flutter_app/build/
 flutter_app/.flutter-plugins
 flutter_app/.flutter-plugins-dependencies
+flutter_app/.chrome-dev-profile/
 
 # IDE
 .idea/

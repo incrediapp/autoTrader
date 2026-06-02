@@ -167,8 +167,10 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                   Padding(
                     padding: const EdgeInsets.only(bottom: 16),
                     child: Text(
-                      'Guest sessions are saved per browser URL. '
-                      'Use ./scripts/run-web.sh (port 7357) so restarts keep you signed in.',
+                      'Dev tip: start with ./scripts/run-web.sh and use the Chrome '
+                      'window it opens (http://localhost:7357). '
+                      'Current origin: ${Uri.base.origin}. '
+                      'Guest sessions do not carry over if you open a different browser or port.',
                       style: theme.textTheme.bodySmall?.copyWith(
                         color: theme.colorScheme.onSurfaceVariant,
                       ),

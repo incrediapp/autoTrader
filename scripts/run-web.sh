@@ -1,5 +1,12 @@
 #!/usr/bin/env bash
-# Fixed port keeps Firebase Auth guest sessions in localStorage between restarts.
+# Fixed port + Chrome profile keep Firebase Auth sessions between dev restarts.
 set -euo pipefail
-cd "$(dirname "$0")/../flutter_app"
-flutter run -d chrome --web-hostname=localhost --web-port=7357 "$@"
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$ROOT/flutter_app"
+PROFILE="$ROOT/flutter_app/.chrome-dev-profile"
+mkdir -p "$PROFILE"
+exec flutter run -d chrome \
+  --web-hostname=localhost \
+  --web-port=7357 \
+  --web-browser-flag="--user-data-dir=$PROFILE" \
+  "$@"

@@ -43,10 +43,11 @@ final adminAuditLogProvider =
 
 final macroEventsProvider = StreamProvider<List<Map<String, dynamic>>>((ref) {
   final now = DateTime.now();
-  final twoWeeks = now.add(const Duration(days: 14));
+  final startOfToday = DateTime(now.year, now.month, now.day);
+  final twoWeeks = startOfToday.add(const Duration(days: 14));
   return FirebaseFirestore.instance
       .collection('macroCalendar')
-      .where('eventDate', isGreaterThanOrEqualTo: Timestamp.fromDate(now))
+      .where('eventDate', isGreaterThanOrEqualTo: Timestamp.fromDate(startOfToday))
       .where('eventDate', isLessThanOrEqualTo: Timestamp.fromDate(twoWeeks))
       .orderBy('eventDate')
       .snapshots()

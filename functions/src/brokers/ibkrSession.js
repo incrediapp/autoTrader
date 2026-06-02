@@ -1,7 +1,17 @@
 const fs = require('fs');
 const path = require('path');
+const { configureIbkrNetwork, fetchCloudEgressIp } = require('./ibkrNetwork');
 const { IbkrClient } = require('ibkr-client');
-const { getSecret } = require('../utils/secrets');
+
+configureIbkrNetwork();
+const {
+  getSecret,
+  getSecretSource,
+  clearSecretCache,
+  pemFingerprint,
+  getIbkrSecretFingerprints,
+} = require('../utils/secrets');
+const { normalizeDhPrime } = require('./ibkrDhPrime');
 
 let clientPromise = null;
 let initPromise = null;
@@ -36,14 +46,16 @@ async function loadOAuthConfig() {
     readSecretOrPemFile('ibkr_oauth_private_encryption', 'IBKR_OAUTH_ENCRYPTION_PEM_PATH'),
   ]);
 
+  const key = consumerKey.trim().toUpperCase();
   return {
-    consumerKey: consumerKey.trim(),
+    consumerKey: key,
     accessToken: accessToken.trim(),
     accessTokenSecret: accessTokenSecret.trim(),
-    dhPrime: dhPrime.replace(/\s/g, ''),
+    dhPrime: normalizeDhPrime(dhPrime),
     signature,
     encryption,
-    realm: consumerKey.trim() === 'TESTCONS' ? 'test_realm' : 'limited_poa',
+    // test_realm is only for IB's demo TESTCONS key — portal keys (e.g. AUTOTRADE) use limited_poa
+    realm: key === 'TESTCONS' ? 'test_realm' : 'limited_poa',
   };
 }
 
@@ -114,6 +126,62 @@ async function pingIbkrCredentials() {
 function resetIbkrSession() {
   clientPromise = null;
   initPromise = null;
+  clearSecretCache();
+}
+
+/** Safe summary for logs / diagnostics (no secrets). */
+function credentialsLookConfigured(diag) {
+  if (!diag.signaturePemFingerprint || diag.dhPrimeLength < 512 || !diag.accessTokenLength) {
+    return false;
+  }
+  if (diag.smLatestsignatureFingerprint
+    && diag.signaturePemFingerprint !== diag.smLatestsignatureFingerprint) {
+    return false;
+  }
+  if (diag.deployedsignatureFingerprint
+    && diag.signaturePemFingerprint !== diag.deployedsignatureFingerprint) {
+    return false;
+  }
+  return true;
+}
+
+async function getIbkrOAuthDiagnostics() {
+  const config = await loadOAuthConfig();
+  const fingerprintCompare = await getIbkrSecretFingerprints();
+  const egressIp = process.env.K_SERVICE ? await fetchCloudEgressIp() : null;
+  const diag = {
+    consumerKey: config.consumerKey,
+    realm: config.realm,
+    accessTokenLength: config.accessToken.length,
+    accessTokenSecretLength: config.accessTokenSecret.length,
+    dhPrimeLength: config.dhPrime.length,
+    signaturePemLength: config.signature?.length ?? 0,
+    encryptionPemLength: config.encryption?.length ?? 0,
+    signaturePemFingerprint: pemFingerprint(config.signature),
+    encryptionPemFingerprint: pemFingerprint(config.encryption),
+    signatureSecretSource: getSecretSource('ibkr_oauth_private_signature'),
+    encryptionSecretSource: getSecretSource('ibkr_oauth_private_encryption'),
+    credentialsLookValid: false,
+    egressIp,
+    httpProxyConfigured: Boolean(process.env.IBKR_HTTP_PROXY || process.env.IBKR_HTTPS_PROXY),
+    ...fingerprintCompare,
+  };
+  diag.credentialsLookValid = credentialsLookConfigured(diag);
+  return diag;
+}
+
+function invalidConsumerHint(diag) {
+  if (diag?.credentialsLookValid) {
+    const ipNote = diag.egressIp ? ` Cloud egress IP: ${diag.egressIp}.` : '';
+    return 'OAuth keys and PEM fingerprints look correct.'
+      + ' IBKR often returns "invalid consumer" for requests from Google Cloud datacenter IPs'
+      + ' even when the same credentials work locally (node scripts/verify-ibkr-oauth.js).'
+      + `${ipNote} Contact IBKR support to allowlist your consumer AUTOTRADE for that IP,`
+      + ' or set IBKR_HTTP_PROXY on Cloud Functions to route through a network IBKR accepts.'
+      + ' Also re-generate portal tokens after any PEM/DH change and wait for the weekend reset if the key is new.';
+  }
+  return 'Portal consumer key must match .env (e.g. AUTOTRADE), use limited_poa realm,'
+    + ' tokens from Generate Token after Save Key, and run ./scripts/sync-secrets-from-env.sh --only ibkr.';
 }
 
 module.exports = {
@@ -121,4 +189,7 @@ module.exports = {
   pingIbkrCredentials,
   resetIbkrSession,
   ensureIbkrSession,
+  loadOAuthConfig,
+  getIbkrOAuthDiagnostics,
+  invalidConsumerHint,
 };

@@ -1,6 +1,9 @@
 const { HttpsError } = require('firebase-functions/v2/https');
 const { getDb } = require('./db');
 
+/** Set true to enforce limits and write rateLimits/{userId}_{action} in Firestore. */
+const RATE_LIMITS_ENABLED = false;
+
 const DEFAULT_LIMITS = {
   // Multi-turn setup chat: one call per user message; allow a full clarification session.
   strategy_setup: { maxCalls: 20, windowSeconds: 3600 },
@@ -16,12 +19,14 @@ const DEFAULT_LIMITS = {
   toggle_strategy_status: { maxCalls: 20, windowSeconds: 3600 },
   switch_strategy_mode: { maxCalls: 10, windowSeconds: 3600 },
   get_analytics: { maxCalls: 30, windowSeconds: 3600 },
+  refresh_macro_calendar: { maxCalls: 10, windowSeconds: 3600 },
   update_fcm_token: { maxCalls: 20, windowSeconds: 3600 },
   apply_autopilot: { maxCalls: 5, windowSeconds: 3600 },
   trigger_autopilot: { maxCalls: 3, windowSeconds: 3600 },
   monte_carlo: { maxCalls: 5, windowSeconds: 3600 },
   replay_session: { maxCalls: 3, windowSeconds: 86400 },
   resolve_conflict: { maxCalls: 10, windowSeconds: 3600 },
+  migrate_guest_strategies: { maxCalls: 5, windowSeconds: 86400 },
   create_user_profile: { maxCalls: 5, windowSeconds: 3600 },
   admin_suspend_user: { maxCalls: 20, windowSeconds: 3600 },
   admin_promote_user: { maxCalls: 10, windowSeconds: 3600 },
@@ -29,6 +34,8 @@ const DEFAULT_LIMITS = {
 };
 
 async function enforceRateLimit(userId, action, maxCalls, windowSeconds) {
+  if (!RATE_LIMITS_ENABLED) return;
+
   const limits = DEFAULT_LIMITS[action];
   const max = maxCalls ?? limits?.maxCalls ?? 10;
   const window = windowSeconds ?? limits?.windowSeconds ?? 3600;

@@ -80,7 +80,7 @@ Web charts: `flutter build web --web-renderer canvaskit`
 
 ## Cloud Functions
 
-**Scheduled:** `tradeLoopScheduled` (15 min), `priceMonitor`, `ibkrFillPoller`, `computeDailyStats`, `sendDailySummaries`, `cleanupExpiredData`, `autopilotAnalysis`, `refreshEarningsCalendar`, `refreshMacroCalendar`
+**Scheduled:** `tradeLoopScheduled` (1 hr), `priceMonitor` (20 min), `ibkrFillPoller`, `computeDailyStats`, `sendDailySummaries`, `cleanupExpiredData`, `autopilotAnalysis`, `refreshEarningsCalendar`, `refreshMacroCalendar`
 
 **Triggers:** `tradeLoopOnPriceEvent`, `postMortemProcessor`
 

@@ -111,6 +111,7 @@ async function strategyReinterpretHandler(request) {
     interpretedAt: FieldValue.serverTimestamp(),
     interpretedModelVersion: 'claude-haiku-4-5',
     rules: result.data.rules ?? strategy.rules,
+    signals: result.data.signals ?? strategy.signals ?? [],
     updatedAt: FieldValue.serverTimestamp(),
     descriptionHistory: FieldValue.arrayUnion({
       text: sanitised,
@@ -134,6 +135,17 @@ async function createStrategyHandler(request) {
     decisionMode: z.enum(['rule_interpreter', 'autonomous_reasoner']),
     claudeSummary: z.string(),
     rules: z.array(z.any()).optional(),
+    signals: z.array(z.object({
+      id: z.string(),
+      label: z.string().nullable().optional(),
+      source: z.enum(['yahoo']),
+      symbol: z.string(),
+      marketKey: z.string(),
+      baselineMode: z.enum(['per_cycle']),
+      thresholdPct: z.number().positive(),
+      freshFetch: z.boolean().optional(),
+      maxStepNotionalUsd: z.number().positive().optional(),
+    })).optional(),
     assets: z.object({
       broker: z.enum(['binance', 'ibkr']),
       watchlist: z.array(z.string()).min(1).max(20),
@@ -187,6 +199,7 @@ async function createStrategyHandler(request) {
       triggerCount: 0,
       lastTriggeredAt: null,
     })),
+    signals: data.signals ?? [],
     assets: {
       broker: data.assets.broker,
       watchlist,
@@ -235,6 +248,7 @@ async function createStrategyHandler(request) {
     lastTradeAt: null,
     lastTradeId: null,
     stats: {
+      paperCashUsd: 10000,
       totalCycles: 0,
       totalCyclesWithTrade: 0,
       totalCyclesWithError: 0,

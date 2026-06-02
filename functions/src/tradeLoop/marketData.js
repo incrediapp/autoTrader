@@ -6,6 +6,7 @@ const { getSecret } = require('../utils/secrets');
 const { getEarningsContext } = require('../features/earningsCalendar');
 const { getUpcomingMacroEvents } = require('../features/macroCalendar');
 const { fetchCrossMarketContext } = require('../features/crossMarketContext');
+const { enrichMarketWithSignalBaselines } = require('../features/signalBaselines');
 
 async function getMarketDataCache(cacheKey) {
   const doc = await getDb().doc(`marketDataCache/${cacheKey}`).get();
@@ -222,6 +223,7 @@ async function enrichWithExternalData(marketSnapshot, strategy) {
 
   try {
     enriched.crossMarket = await fetchCrossMarketContext();
+    enriched.crossMarket = await enrichMarketWithSignalBaselines(strategy, enriched.crossMarket);
   } catch {
     enriched.crossMarket = null;
   }

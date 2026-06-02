@@ -5,6 +5,7 @@ const { buildSystemMetricsSnapshot } = require('../monitoring/metrics');
 const { computeAnnualisedSharpe, computeAnnualisedSortino } = require('../utils/helpers');
 const { getIBKROrderStatus } = require('../brokers/ibkr');
 const { updatePositionAfterTrade } = require('../positions/fifo');
+const { applyRealizedPnlToStrategy } = require('../strategy/statsSync');
 const { sendNotification } = require('../notifications/fcm');
 const { logError } = require('../monitoring/errors');
 const { callClaude } = require('../claude/client');
@@ -124,6 +125,14 @@ const ibkrFillPoller = onSchedule(withAppSecrets({
           orderStatus.avgPrice,
           fill.tradeId,
         );
+
+        const filledTrade = (await tradeRef.get()).data();
+        if (filledTrade?.realizedPnlUsd != null) {
+          const strategyRef = getDb().doc(
+            `users/${fill.userId}/strategies/${fill.strategyId}`,
+          );
+          await applyRealizedPnlToStrategy(strategyRef, filledTrade.realizedPnlUsd);
+        }
 
         await doc.ref.update({ status: 'filled', resolvedAt: FieldValue.serverTimestamp() });
       } else if (['Cancelled', 'Inactive'].includes(orderStatus.status)) {

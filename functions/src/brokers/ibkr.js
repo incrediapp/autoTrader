@@ -1,3 +1,4 @@
+const { fetchPaperPortfolioFromFirestore } = require('./paperPortfolio');
 const { getDb, FieldValue } = require('../utils/db');
 const { logBrokerCall } = require('../monitoring/logger');
 const { incrementSystemMetric } = require('../monitoring/metrics');
@@ -183,8 +184,9 @@ async function getIBKROrderStatus(userId, orderId) {
 }
 
 class IBKRAdapter {
-  constructor(userId, _isPaper = false, ctx = {}) {
+  constructor(userId, isPaper = false, ctx = {}) {
     this.userId = userId;
+    this.isPaper = isPaper;
     this.ctx = ctx;
   }
 
@@ -198,6 +200,18 @@ class IBKRAdapter {
   }
 
   async fetchPortfolio() {
+    if (this.isPaper) {
+      const strategy = this.ctx.strategy ?? {
+        strategyId: this.ctx.strategyId,
+        stats: {},
+      };
+      return fetchPaperPortfolioFromFirestore(
+        strategy,
+        this.userId,
+        'ibkr',
+        (symbol) => this.getSpotPrice(symbol),
+      );
+    }
     return fetchIBKRPortfolio(this.userId, this.ctx);
   }
 
