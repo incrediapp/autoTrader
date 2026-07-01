@@ -32,12 +32,33 @@ class _NewStrategyFlowState extends ConsumerState<NewStrategyFlow> {
   String _broker = 'binance';
   int _interval = 15;
   bool _loading = false;
+  final _assetInput = TextEditingController();
+
+  String get _defaultAsset => _broker == 'ibkr' ? 'AAPL' : 'ETHUSDT';
+
+  void _ensureDefaultAsset() {
+    if (_assets.isEmpty) {
+      _assets.add(_defaultAsset);
+    }
+  }
+
+  void _addAsset(String raw) {
+    final symbol = raw.trim().toUpperCase();
+    if (symbol.isEmpty) return;
+    setState(() {
+      if (!_assets.contains(symbol)) {
+        _assets.add(symbol);
+      }
+      _assetInput.clear();
+    });
+  }
 
   @override
   void dispose() {
     _pageController.dispose();
     _name.dispose();
     _chatController.dispose();
+    _assetInput.dispose();
     super.dispose();
   }
 
@@ -81,7 +102,12 @@ class _NewStrategyFlowState extends ConsumerState<NewStrategyFlow> {
           if (suggested is List && suggested.isNotEmpty) {
             _assets
               ..clear()
-              ..addAll(suggested.map((a) => a.toString()));
+              ..addAll(
+                suggested
+                    .map((a) => a.toString().trim().toUpperCase())
+                    .where((a) => a.isNotEmpty),
+              );
+            _ensureDefaultAsset();
           }
           final broker = result['suggestedBroker']?.toString();
           if (broker == 'binance' || broker == 'ibkr') {
@@ -132,6 +158,14 @@ class _NewStrategyFlowState extends ConsumerState<NewStrategyFlow> {
         const SnackBar(
           content: Text('Describe your strategy in the chat step before creating.'),
         ),
+      );
+      return;
+    }
+
+    _ensureDefaultAsset();
+    if (_assets.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Add at least one asset to the watchlist.')),
       );
       return;
     }
@@ -338,11 +372,42 @@ class _NewStrategyFlowState extends ConsumerState<NewStrategyFlow> {
     return ListView(
       padding: const EdgeInsets.all(24),
       children: [
+        Text(
+          'Watchlist (at least one symbol)',
+          style: Theme.of(context).textTheme.titleSmall,
+        ),
+        const SizedBox(height: 8),
         Wrap(
           spacing: 8,
           children: _assets
-              .map((a) => Chip(label: Text(a), onDeleted: () => setState(() => _assets.remove(a))))
+              .map(
+                (a) => Chip(
+                  label: Text(a),
+                  onDeleted: _assets.length > 1
+                      ? () => setState(() => _assets.remove(a))
+                      : null,
+                ),
+              )
               .toList(),
+        ),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            Expanded(
+              child: TextField(
+                controller: _assetInput,
+                decoration: InputDecoration(
+                  labelText: _broker == 'ibkr' ? 'Add ticker (e.g. AAPL)' : 'Add pair (e.g. ETHUSDT)',
+                ),
+                textCapitalization: TextCapitalization.characters,
+                onSubmitted: _addAsset,
+              ),
+            ),
+            IconButton(
+              onPressed: () => _addAsset(_assetInput.text),
+              icon: const Icon(Icons.add),
+            ),
+          ],
         ),
         DropdownButtonFormField(
           value: _broker,
@@ -351,7 +416,15 @@ class _NewStrategyFlowState extends ConsumerState<NewStrategyFlow> {
             DropdownMenuItem(value: 'binance', child: Text('Binance')),
             DropdownMenuItem(value: 'ibkr', child: Text('IBKR')),
           ],
-          onChanged: (v) => setState(() => _broker = v!),
+          onChanged: (v) => setState(() {
+            _broker = v!;
+            if (_assets.length == 1 && _assets.first == 'ETHUSDT' && _broker == 'ibkr') {
+              _assets[0] = 'AAPL';
+            } else if (_assets.length == 1 && _assets.first == 'AAPL' && _broker == 'binance') {
+              _assets[0] = 'ETHUSDT';
+            }
+            _ensureDefaultAsset();
+          }),
         ),
         DropdownButtonFormField(
           value: _interval,
@@ -364,7 +437,10 @@ class _NewStrategyFlowState extends ConsumerState<NewStrategyFlow> {
           ],
           onChanged: (v) => setState(() => _interval = v!),
         ),
-        FilledButton(onPressed: _next, child: const Text('Next')),
+        FilledButton(
+          onPressed: _assets.isNotEmpty ? _next : null,
+          child: const Text('Next'),
+        ),
       ],
     );
   }

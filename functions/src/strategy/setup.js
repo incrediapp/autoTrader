@@ -148,7 +148,7 @@ async function createStrategyHandler(request) {
     })).optional(),
     assets: z.object({
       broker: z.enum(['binance', 'ibkr']),
-      watchlist: z.array(z.string()).min(1).max(20),
+      watchlist: z.array(z.string().min(1)).min(1, 'Watchlist must include at least one symbol').max(20),
     }),
     risk: z.object({
       maxLossPerTradePct: z.number().default(2),
